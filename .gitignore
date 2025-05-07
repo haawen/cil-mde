@@ -1,7 +1,7 @@
 data/
 da2_pipe_preds_npy/
 test_images/
-__pycache__
+**/__pycache__/
 # Auto Generated gitignore starts here
 # Byte-compiled / optimized / DLL files
 __pycache__/
