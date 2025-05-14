@@ -3,6 +3,7 @@ da2_pipe_preds_npy/
 test_images/
 test_models/
 **/__pycache__/
+.vscode/
 # Auto Generated gitignore starts here
 # Byte-compiled / optimized / DLL files
 __pycache__/
