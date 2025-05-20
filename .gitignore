@@ -1,5 +1,7 @@
 data/
 da2_pipe_preds_npy/
+preds/
+dataset/
 test_images/
 test_models/
 **/__pycache__/
