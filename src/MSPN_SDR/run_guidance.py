@@ -1,42 +1,30 @@
+from argparse import Namespace
 import os
 import torch
-from lib.model.backbone import Backbone
-from argparse import Namespace
 from torchvision.transforms import ToTensor
 from PIL import Image
 import numpy as np
+from .lib.model.backbone import Backbone
 
 # 3. Load your dataset (example with a single sample)
-def load_sample(rgb_path, depth_path, depth_md_path=None):
+def load_sample(rgb_path, var_path, depth_md_path=None):
     rgb = Image.open(rgb_path).convert('RGB')
-    rgb = ToTensor()(rgb).unsqueeze(0)  # Shape: (1, 3, H, W)
+    rgb = ToTensor()(rgb)#.unsqueeze(0)  # Shape: (1, 3, H, W)
 
 
     #Commented out for now, comment in when we have sparse depth map
 
     # Load sparse depth map
-    depth = np.load(depth_path)  # Assuming depth is stored as a .npy file
-    depth = torch.tensor(depth).unsqueeze(0)  # Shape: (1, 1, H, W)
-
-    ##################################
-    # Load sparse depth map (for testing purposes, we create a random sparse depth map)
-    # Comment this out when using real sparse depth map
-    ##################################
-    """ init_depth = np.load(depth_md_path)  # Load initial depth estimation
-    mask = np.random.rand(*init_depth.shape) < 0.01  # Keep 10% of the depth values
-    sparse_depth = np.zeros_like(init_depth)
-    sparse_depth[mask] = init_depth[mask]  # Retain only the sampled values
-
-    depth = torch.tensor(sparse_depth).unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, H, W) """
-
+    var = np.load(var_path)  # Assuming depth is stored as a .npy file
+    var = torch.tensor(var)#.unsqueeze(0)  # Shape: (1, 1, H, W)
 
     # Load initial depth estimation (if in SDR mode)
     depth_md = None
     if depth_md_path:
         depth_md = np.load(depth_md_path)
-        depth_md = torch.tensor(depth_md).unsqueeze(0).unsqueeze(0)  # Shape: (1, 1, H, W)
+        depth_md = torch.tensor(depth_md)#.unsqueeze(0)  # Shape: (1, 1, H, W)
 
-    return rgb, depth, depth_md
+    return rgb, var, depth_md
 
 
 def main():

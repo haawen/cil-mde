@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from .NAFNet_arch import NAFBlock
 from .pvt import PVT
 
-from lib.model.NAF_utils.arch_util import LayerNorm2d
+from .NAF_utils.arch_util import LayerNorm2d
 
 
 def conv_ln_relu(ch_in, ch_out, kernel, stride=1, padding=0, ln=True,
