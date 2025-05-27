@@ -7,21 +7,41 @@ import random
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
-from .run_guidance import load_sample, Backbone
-from .lib.model.MSPN import MSPN
+from torchvision.transforms import ToTensor
+from PIL import Image
+from MSPN_SDR.lib.model.MSPN import MSPN
 
 args = Namespace(
     data_name='NYU',
     mode='SDR',
     embed_dim=64,
-    pretrain='test_models/SDR_NYU.pt',
+    pretrain='./MSPN_SDR/test_models/udr.pth',
     prop_time=6,
 )
 # Add your own paths to these directories
-RGB_DIR = os.path.join('/')
-DEPTH_MD_DIR = os.path.join('/')
-TOTAL_VARIANCE_DIR = os.path.join('/')
+RGB_DIR = os.path.join('..', 'data','train','train')
+DEPTH_MD_DIR = os.path.join('..', 'data', 'mean_train')
+TOTAL_VARIANCE_DIR = os.path.join('..', 'data', 'total_var_train')
 
+
+def load_sample(rgb_path, var_path, depth_md_path=None):
+    rgb = Image.open(rgb_path).convert('RGB')
+    rgb = ToTensor()(rgb)#.unsqueeze(0)  # Shape: (1, 3, H, W)
+
+
+    #Commented out for now, comment in when we have sparse depth map
+
+    # Load sparse depth map
+    var = np.load(var_path)  # Assuming depth is stored as a .npy file
+    var = torch.tensor(var)#.unsqueeze(0)  # Shape: (1, 1, H, W)
+
+    # Load initial depth estimation (if in SDR mode)
+    depth_md = None
+    if depth_md_path:
+        depth_md = np.load(depth_md_path)
+        depth_md = torch.tensor(depth_md)#.unsqueeze(0)  # Shape: (1, 1, H, W)
+
+    return rgb, var, depth_md
 
 def sample_depth_from_var(total_var, depth_md, threshold=0.01):
     depth = torch.zeros_like(depth_md)
@@ -63,37 +83,30 @@ def load_inputs(rgb_path, var_path, depth_md_path, threshold=0.01):
     rgb, variance, depth_md = load_sample(rgb_path, var_path, depth_md_path)
     #depth, mask_init = depth_and_mask_from_rand(depth_md)
     depth = sample_depth_from_var(variance, depth_md, threshold=threshold)
-    num_sample = get_num_sample_tensor(depth)
 
-    return rgb, depth, depth_md, variance, num_sample
+    return rgb, depth, depth_md, variance
 
-def prepare_inputs(rgb, depth, depth_md, variance, num_sample, guidance_net, device):
-    rgb = rgb.to(device)
-    depth = depth.to(device)
+def prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device):
+    s_depth = s_depth.to(device)
     depth_md = depth_md.to(device)
     variance = variance.to(device)
 
-    num_sample = num_sample.to(device)
+    print(rgb.shape, s_depth.shape, depth_md.shape)
 
     with torch.no_grad():
-        _, guide = guidance_net(rgb=rgb, depth=depth, depth_MD=depth_md)
+        #with torch.cuda.amp.autocast():
+            _, guide = guidance_net(rgb, s_depth, depth_md)
 
-    y_inter = [depth_md, ]
-    var_inter = [variance, ]
-
-    return depth_md, guide, depth, variance, num_sample, y_inter, var_inter
+    return depth_md, guide, s_depth, variance
 
 
-def load_model(model, args):
-    checkpoint = torch.load(args.pretrain)
-    _, _ = model.load_state_dict(checkpoint['net'], strict=False)
+def load_model(model, arg):
+    model.load_state_dict(torch.load(arg.pretrain))
+    print(f'Checkpoint loaded from {arg.pretrain}!')
+    return model
 
-    print(f'Checkpoint loaded from {args.pretrain}!')
 
-
-def visualize_output(output, sample_num):
-    var_inter = output['var_inter']
-    y_inter = output['pred_inter']
+def visualize_output(y_inter, var_inter, sample_num):
 
     gt = np.load(os.path.join(RGB_DIR, f'sample_{sample_num}_depth.npy'))
     gt = torch.tensor(gt).unsqueeze(0)
@@ -107,46 +120,34 @@ def visualize_output(output, sample_num):
     depth_min = min(get_from_func(y_inter, min, torch.min), gt.min())
     depth_max = max(get_from_func(y_inter, max, torch.max), gt.max())
 
-    #fig = plt.figure()
+    fig = plt.figure()
     plt.tight_layout()
     print("Variances:")
     for i, yy in enumerate(var_inter):
-        #fig.add_subplot(5, len(var_inter)//2 + 1, i+1)
-        plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy())#, vmin=var_min, vmax=var_max)
-        plt.show()
+        fig.add_subplot(5, len(var_inter)//2 + 1, i+1)
+        plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy(), vmin=var_min, vmax=var_max, cmap='plasma')
+        #plt.show()
     print("Depths:")
     for i, yy in enumerate(y_inter):
-        #fig.add_subplot(5, len(y_inter)//2 + 1, i + len(y_inter) + 2)
-        plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy())#, vmin=depth_min, vmax=depth_max)
-        plt.show()
-    #fig.add_subplot(5, len(var_inter)//2 + 1, 4 * (len(var_inter)//2 + 1) + 1)
+        fig.add_subplot(5, len(y_inter)//2 + 1, i + len(y_inter) + 2)
+        plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy(), vmin=depth_min, vmax=depth_max, cmap='plasma')
+        #plt.show()
+    fig.add_subplot(5, len(var_inter)//2 + 1, 4 * (len(var_inter)//2 + 1) + 1)
     print("Ground Truth:")
-    plt.imshow(gt.squeeze(0).squeeze(0).cpu().numpy())#, vmin=depth_min, vmax=depth_max)
+    plt.imshow(gt.squeeze(0).squeeze(0).cpu().numpy(), vmin=depth_min, vmax=depth_max, cmap='plasma')
     plt.show()
 
 
-def get_model_output(model, pred_init, y_inter, var_inter, guide, depth, var_init, num_sample):
-    if args.prop_time > 0:
-        #with torch.no_grad():
-        y, y_inter, var_inter = model(
+def get_model_output(model, pred_init, var_init, guide):
+
+    with torch.no_grad():
+        y_inter, var_inter, _gain = model(
             pred_init,
-            y_inter,
-            var_inter,
-            guide,
-            depth,
             var_init,
-            num_sample
+            guide
         )
-    else:
-        y = pred_init
-    # Remove negative depth
-    y = torch.clamp(y, min=0)
-    # best at first
-    #y_inter.reverse()
-    #var_inter.reverse()
-    output = {'pred': y, 'pred_init': pred_init, 'pred_inter': y_inter, 'var_inter': var_inter,
-            'guidance': guide, 'num_sample': num_sample}
-    return output
+
+    return y_inter, var_inter
 
 def eval_depth(pred, target):
     assert pred.shape == target.shape
@@ -235,10 +236,10 @@ def main():
     model = MSPN(args).to(device)
     model.eval()
 
-    load_model(model)
+    load_model(model, args)
 
     SAMPLE_NUM = random.choice(os.listdir(TOTAL_VARIANCE_DIR))[7:13]
-    SAMPLE_NUM = '009067'
+    #SAMPLE_NUM = '009067'
 
     # RGB image
     rgb_file = os.path.join(RGB_DIR, f'sample_{SAMPLE_NUM}_rgb.png')
@@ -247,21 +248,34 @@ def main():
     # init depth estimation
     depth_md_file = os.path.join(DEPTH_MD_DIR, f'sample_{SAMPLE_NUM}_depth_mean.npy')
 
-    guidance_net = Backbone(args).to(device)
+    guidance_net = torch.load(os.path.join('.', 'MSPN_SDR', 'test_models', 'guidance_net.pt'))
+    guidance_net = guidance_net.to(device).eval()
 
-    rgb, depth, depth_md, variance, num_sample = load_inputs(rgb_file, var_file, depth_md_file)
+    rgb, s_depth, depth_md, variance = load_inputs(rgb_file, var_file, depth_md_file)
+    rgb = rgb.to(device)
 
-    pred_init, y_inter, var_inter, guide, depth, var_init, num_sample = prepare_inputs(rgb, depth, depth_md, variance, num_sample, guidance_net, device)
+    # "Batch Size 1"
+    rgb = rgb.unsqueeze(0)
+    s_depth = s_depth.unsqueeze(0)
+    depth_md = depth_md.unsqueeze(0)
+    variance = variance.unsqueeze(0)
 
-    output = get_model_output(model, pred_init, y_inter, var_inter, guide, depth, var_init, num_sample)
+    pred_init, guide, s_depth, var_init = prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device)
 
-    visualize_output(output, SAMPLE_NUM)
+    with torch.no_grad():
+        pred_inter, var_inter, _gain = model(
+            pred_init,
+            var_init,
+            guide
+        )
+
+    visualize_output(pred_inter, var_inter, SAMPLE_NUM)
 
     gt = np.load(os.path.join(RGB_DIR, f'sample_{SAMPLE_NUM}_depth.npy'))
     gt = torch.tensor(gt).unsqueeze(0).unsqueeze(0).to(device)
 
     print(eval_depth(pred_init, gt))
-    print(eval_depth(output["pred"], gt))
+    print(eval_depth(pred_inter[-1], gt))
 
 
 if __name__ == '__main__':
