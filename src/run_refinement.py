@@ -91,8 +91,6 @@ def prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device):
     depth_md = depth_md.to(device)
     variance = variance.to(device)
 
-    print(rgb.shape, s_depth.shape, depth_md.shape)
-
     with torch.no_grad():
         #with torch.cuda.amp.autocast():
             _, guide = guidance_net(rgb, s_depth, depth_md)

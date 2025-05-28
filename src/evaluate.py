@@ -1,11 +1,17 @@
 
 # %%
+import math
+import os
 from pathlib import Path
+import warnings
 import numpy as np
 import cv2
-import math
 import pandas as pd
-import warnings
+import torch
+from tqdm import tqdm
+
+from MSPN_SDR.lib.model.MSPN import MSPN
+from run_refinement import load_inputs, load_model, args, prepare_inputs, RGB_DIR, DEPTH_MD_DIR, TOTAL_VARIANCE_DIR
 
 # ──────────────────────── Configuration ────────────────────────
 PRED_DIR = Path(r"src\Evaluation\preds\DA2_preds\da2_pipe_preds_npy")    # your model outputs
@@ -60,20 +66,51 @@ def load_depth(path: Path) -> np.ndarray:
     return img / (1000.0 if img.max()>255 else 1.0)
 
 # ─────────────────────────── Main eval ────────────────────────────
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+model = MSPN(args).to(device)
+model.eval()
+load_model(model, args)
+
+guidance_net = torch.load(os.path.join('.', 'MSPN_SDR', 'test_models', 'guidance_net.pt'))
+guidance_net = guidance_net.to(device).eval()
+
+with open(os.path.join('..', 'data', 'train_list.txt'), 'r') as f:
+    all_samples = [s.strip() for s in sorted(list(f))]
+mid = int(len(all_samples)*0.9)
+tail_samples = all_samples[mid:]
+
 records = []
-for pred_path in sorted(PRED_DIR.glob(f"*{PRED_EXT}")):
-    stem = pred_path.stem
-    gt_path = GT_DIR / f"{stem}{GT_EXT}"
-    if not gt_path.exists():
-        warnings.warn(f"GT missing for {stem}, skipping")
-        continue
+for sample_num in tqdm(tail_samples):
 
-    pred = load_depth(pred_path)
-    gt   = load_depth(gt_path)
+    rgb_file = os.path.join(RGB_DIR, f'sample_{sample_num}_rgb.png')
+    var_file = os.path.join(TOTAL_VARIANCE_DIR, f'sample_{sample_num}_depth_var_total.npy')
+    depth_md_file = os.path.join(DEPTH_MD_DIR, f'sample_{sample_num}_depth_mean.npy')
 
-    rec = {"sample": stem}
+    rgb, s_depth, depth_md, variance = load_inputs(rgb_file, var_file, depth_md_file, threshold=0.05)
+    rgb = rgb.to(device)
+
+    # "Batch Size 1"
+    rgb = rgb.unsqueeze(0)
+    s_depth = s_depth.unsqueeze(0)
+    depth_md = depth_md.unsqueeze(0)
+    variance = variance.unsqueeze(0)
+
+    pred_init, guide, s_depth, var_init = prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device)
+    
+    with torch.no_grad():
+        pred_inter, var_inter, _gain = model(
+            pred_init,
+            var_init,
+            guide
+        )
+    
+    gt = np.load(os.path.join(RGB_DIR, f'sample_{sample_num}_depth.npy'))
+    gt = gt[np.newaxis, np.newaxis, ...]
+
+    rec = {"sample": sample_num}
     for name, fn in METRIC_FNS.items():
-        rec[name] = fn(gt, pred)
+        rec[name] = fn(gt, pred_inter[-1].cpu().numpy())
     records.append(rec)
 
 df = pd.DataFrame(records)
