@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 
 from MSPN_SDR.lib.model.MSPN import MSPN
-from run_refinement import load_inputs, load_model, args, prepare_inputs, RGB_DIR, DEPTH_MD_DIR, TOTAL_VARIANCE_DIR
+from run_refinement import load_inputs, load_model, prepare_inputs, EMBED_DIMS, PROP_TIME, RGB_DIR, DEPTH_MD_DIR, TOTAL_VARIANCE_DIR
 
 
 def _mask(gt, pr):
@@ -82,9 +82,9 @@ def load_depth(path: Path) -> np.ndarray:
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = MSPN(args).to(device)
+    model = MSPN(EMBED_DIMS, PROP_TIME).to(device)
     model.eval()
-    load_model(model, args)
+    load_model(model)
 
     guidance_net = torch.load(os.path.join('.', 'MSPN_SDR', 'test_models', 'guidance_net.pt'))
     guidance_net = guidance_net.to(device).eval()

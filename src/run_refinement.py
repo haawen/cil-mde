@@ -1,7 +1,3 @@
-"""
-Run the MSPN refinement after getting the guidance features
-"""
-from argparse import Namespace
 import os
 import random
 import torch
@@ -11,14 +7,11 @@ from torchvision.transforms import ToTensor
 from PIL import Image
 from MSPN_SDR.lib.model.MSPN import MSPN
 
-args = Namespace(
-    data_name='NYU',
-    mode='SDR',
-    embed_dim=64,
-    pretrain='./MSPN_SDR/test_models/udr.pth',
-    prop_time=6,
-)
+EMBED_DIMS = 64
+PROP_TIME = 6
+
 # Add your own paths to these directories
+PRETRAIN = os.path.join('.', 'MSPN_SDR','test_models','udr.pth')
 RGB_DIR = os.path.join('..', 'data','train','train')
 DEPTH_MD_DIR = os.path.join('..', 'data', 'mean_train')
 TOTAL_VARIANCE_DIR = os.path.join('..', 'data', 'total_var_train')
@@ -26,20 +19,17 @@ TOTAL_VARIANCE_DIR = os.path.join('..', 'data', 'total_var_train')
 
 def load_sample(rgb_path, var_path, depth_md_path=None):
     rgb = Image.open(rgb_path).convert('RGB')
-    rgb = ToTensor()(rgb)#.unsqueeze(0)  # Shape: (1, 3, H, W)
-
-
-    #Commented out for now, comment in when we have sparse depth map
+    rgb = ToTensor()(rgb) # Shape: (3, H, W)
 
     # Load sparse depth map
     var = np.load(var_path)  # Assuming depth is stored as a .npy file
-    var = torch.tensor(var)#.unsqueeze(0)  # Shape: (1, 1, H, W)
+    var = torch.tensor(var)  # Shape: (1, H, W)
 
-    # Load initial depth estimation (if in SDR mode)
+    # Load initial depth estimation
     depth_md = None
     if depth_md_path:
         depth_md = np.load(depth_md_path)
-        depth_md = torch.tensor(depth_md)#.unsqueeze(0)  # Shape: (1, 1, H, W)
+        depth_md = torch.tensor(depth_md)  # Shape: (1, H, W)
 
     return rgb, var, depth_md
 
@@ -98,9 +88,9 @@ def prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device):
     return depth_md, guide, s_depth, variance
 
 
-def load_model(model, arg):
-    model.load_state_dict(torch.load(arg.pretrain))
-    print(f'Checkpoint loaded from {arg.pretrain}!')
+def load_model(model):
+    model.load_state_dict(torch.load(PRETRAIN))
+    print(f'Checkpoint loaded from {PRETRAIN}!')
     return model
 
 
@@ -231,10 +221,10 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print("Using device:", device)
 
-    model = MSPN(args).to(device)
+    model = MSPN(EMBED_DIMS, PROP_TIME).to(device)
     model.eval()
 
-    load_model(model, args)
+    load_model(model)
 
     SAMPLE_NUM = random.choice(os.listdir(TOTAL_VARIANCE_DIR))[7:13]
     #SAMPLE_NUM = '009067'

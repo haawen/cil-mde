@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 # Path definitions
 data_root = os.path.join('..', 'data')
-predictions_dir = os.path.join(data_root, 'predictions')
+predictions_dir = os.path.join(data_root, 'output', 'predictions')
 test_list_file = os.path.join(data_root, 'test_list.txt')
 output_csv = os.path.join(data_root, 'predictions.csv')
 

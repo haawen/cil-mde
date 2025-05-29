@@ -1,5 +1,4 @@
 import argparse
-from argparse import Namespace
 import os
 from matplotlib import pyplot as plt
 import numpy as np
@@ -14,6 +13,7 @@ from Depth_Anything_V2.metric_depth.depth_anything_v2.dpt import DepthAnythingV2
 from MSPN_SDR.lib.model.MSPN import MSPN
 from evaluate import run_evaluation
 from run_refinement import compute_aurg, compute_ause, sample_depth_from_var
+
 
 EMBED_DIM = 64
 PROP_TIME = 6
@@ -32,13 +32,7 @@ transform_pipeline = transforms.Compose([
 original_size_hw = (426, 560)
 
 def init_udr(device):
-    args = Namespace(
-        data_name='NYU',
-        mode='SDR',
-        embed_dim=EMBED_DIM,
-        prop_time=PROP_TIME,
-    )
-    model = MSPN(args)
+    model = MSPN(EMBED_DIM, PROP_TIME)
     model = model.to(device)
     model.load_state_dict(torch.load('./checkpoints/udr.pth'))
     return model
@@ -145,7 +139,8 @@ def experiment_1(data_dir):
     AUSE = {'total': {'l1': [], 'l2': []}, 'flipping': {'l1': [], 'l2': []}}
     AURG = {'total': {'l1': [], 'l2': []}, 'flipping': {'l1': [], 'l2': []}}
 
-    for sample_num in tqdm(tail_samples):
+    for filenames in tqdm(tail_samples):
+        sample_num = filenames.strip()[7:13]
         img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
         img = Image.open(img_file).convert('RGB')
 
@@ -191,7 +186,8 @@ def experiment_2(data_dir):
     initial_output_triples = []
     output_triples = []
 
-    for sample_num in tqdm(tail_samples):
+    for filenames in tqdm(tail_samples):
+        sample_num = filenames.strip()[7:13]
         img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
         img = Image.open(img_file).convert('RGB')
 
@@ -210,9 +206,9 @@ def experiment_2(data_dir):
             _, guide = guidance_net(img, sampled_depth, pred_mean)
 
             preds, _, _ = udr_model(pred_mean, pred_total_var, guide)
-        initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
+        #initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
         output_triples.append((preds[-1].cpu().numpy(), gt, sample_num))
-    run_evaluation(initial_output_triples, "EnsembleDA2")
+    #run_evaluation(initial_output_triples, "EnsembleDA2")
     run_evaluation(output_triples, "UDR")
 
 # Read Kalman Gain
@@ -237,7 +233,8 @@ def experiment_3(data_dir):
     for i in range(PROP_TIME):
         output_gains.append([])
 
-    for sample_num in tqdm(tail_samples):
+    for filenames in tqdm(tail_samples):
+        sample_num = filenames.strip()[7:13]
         img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
         img = Image.open(img_file).convert('RGB')
 
@@ -274,6 +271,51 @@ def experiment_3(data_dir):
     plt.show()
 
 
+# Generate Predictions
+def experiment_4(data_dir):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    udr_model = init_udr(device)
+    guidance_net = init_guidance_model(device)
+    depth_models = init_depth_models(device)
+    var_model = init_var_model(device)
+
+    # Use last 10% of training set as validation set
+    with open(os.path.join(data_dir, 'test_list.txt'), 'r') as f:
+        test_samples = [s.strip() for s in f]#sorted(list(f))]
+    #mid = int(len(all_samples)*0.9)
+    #tail_samples = all_samples[mid:]
+
+    test_data_dir = os.path.join(data_dir, 'test', 'test')
+    predictions_dir = os.path.join(data_dir, 'output', 'predictions')
+    for filenames in tqdm(test_samples):
+        sample_num = filenames.strip()[5:11]
+        img_file = os.path.join(test_data_dir, f'test_{sample_num}_rgb.png')
+        img = Image.open(img_file).convert('RGB')
+
+        pred_mean, pred_total_var = depth_var_inference(depth_models, var_model, img, device)
+        sampled_depth = sample_depth_from_var(pred_total_var, pred_mean, threshold=0.05)
+
+        with torch.inference_mode():
+            img = ToTensor()(img)
+            img = img.to(device).unsqueeze(0)
+            sampled_depth = sampled_depth.to(device)
+
+            _, guide = guidance_net(img, sampled_depth, pred_mean)
+
+            preds, _, _ = udr_model(pred_mean, pred_total_var, guide)
+
+            output = F.interpolate(
+                preds[-1],
+                size=(426, 560),  # Original input dimensions
+                mode='bilinear',
+                align_corners=True
+            )
+            filename = f'test_{sample_num}_depth.npy'
+
+            # Save depth map prediction as numpy array
+            depth_pred = output.cpu().squeeze().numpy()
+            np.save(os.path.join(predictions_dir, filename), depth_pred)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -294,6 +336,8 @@ def main():
         experiment_2(data_dir)
     elif args.experiment_number == 3:
         experiment_3(data_dir)
+    elif args.experiment_number == 4:
+        experiment_4(data_dir)
     else:
         raise ValueError("Please run an experiment from the set {1, 2, 3}.")
 

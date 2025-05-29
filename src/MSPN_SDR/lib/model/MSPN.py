@@ -7,9 +7,8 @@ from natten.natten2d import natten2dqkrpb, natten2dav
 
 
 class MSPNLayer(nn.Module):
-    def __init__(self, args, embed_dim, window_size=7, bias=True):
+    def __init__(self, embed_dim, window_size=7, bias=True):
         super().__init__()
-        self.args = args
 
         self.window_size = window_size
         self.pad = self.window_size // 2
@@ -61,23 +60,22 @@ class MSPNLayer(nn.Module):
 
 
 class MSPN(nn.Module):
-    def __init__(self, args):
+    def __init__(self, embed_dim, prop_time):
         super().__init__()
-        self.args = args
 
-        self.embed_dim = args.embed_dim
+        self.embed_dim = embed_dim
         self.window_size = 13
-        self.min_prop_time = args.prop_time
+        self.min_prop_time = prop_time
         self.kappa = 2
 
-        self.mspn = MSPNLayer(self.args, embed_dim=self.embed_dim, window_size=self.window_size, bias=True)
+        self.mspn = MSPNLayer(embed_dim=self.embed_dim, window_size=self.window_size, bias=True)
 
     def forward(self, pred_init, var_init, guide):
         B, _, Wh, Ww = pred_init.shape
 
         cd = pred_init
         var = var_init
-        
+
         list_feat = [cd.contiguous(), ]
         list_var = [var.contiguous(), ]
         list_gain = []
