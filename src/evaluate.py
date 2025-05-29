@@ -1,3 +1,4 @@
+import argparse
 import math
 import os
 from pathlib import Path
@@ -82,49 +83,29 @@ def load_depth(path: Path) -> np.ndarray:
 
 
 def main():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    parser = argparse.ArgumentParser()
+    
+    parser.add_argument('--predictions_dir', type=str, default='../data/output/predictions')
+    parser.add_argument('--gt_dir', type=str, default='../data/train/train')
+    parser.add_argument('--train_list', type=str, default='../data/train_list.txt')
 
-    model = MSPN(EMBED_DIMS, PROP_TIME).to(device)
-    model.eval()
-    load_model(model)
+    args = parser.parse_args()
 
-    guidance_net = torch.load(os.path.join('.', 'MSPN_SDR', 'test_models', 'guidance_net.pt'))
-    guidance_net = guidance_net.to(device).eval()
-
-    with open(os.path.join('..', 'data', 'train_list.txt'), 'r') as f:
+    with open(args.train_list, 'r') as f:
         all_samples = [s.strip() for s in sorted(list(f))]
     mid = int(len(all_samples)*0.9)
     tail_samples = all_samples[mid:]
 
+    predictions_dir = args.predictions_dir
+    gt_dir = args.gt_dir
+
     output_triples = []
-    for sample_num in tqdm(tail_samples):
 
-        rgb_file = os.path.join(RGB_DIR, f'sample_{sample_num}_rgb.png')
-        var_file = os.path.join(TOTAL_VARIANCE_DIR, f'sample_{sample_num}_depth_var_total.npy')
-        depth_md_file = os.path.join(DEPTH_MD_DIR, f'sample_{sample_num}_depth_mean.npy')
-
-        rgb, s_depth, depth_md, variance = load_inputs(rgb_file, var_file, depth_md_file, threshold=0.05)
-        rgb = rgb.to(device)
-
-        # "Batch Size 1"
-        rgb = rgb.unsqueeze(0)
-        s_depth = s_depth.unsqueeze(0)
-        depth_md = depth_md.unsqueeze(0)
-        variance = variance.unsqueeze(0)
-
-        pred_init, guide, s_depth, var_init = prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device)
-        
-        with torch.no_grad():
-            pred_inter, var_inter, _gain = model(
-                pred_init,
-                var_init,
-                guide
-            )
-        
-        gt = np.load(os.path.join(RGB_DIR, f'sample_{sample_num}_depth.npy'))
-        gt = gt[np.newaxis, np.newaxis, ...]
-
-        output_triples.append((pred_inter[-1], gt, sample_num))
+    for filenames in tqdm(tail_samples):
+        sample_num = filenames.strip()[7:13]
+        pred = np.load(os.path.join(predictions_dir, f'sample_{sample_num}_depth.py'))
+        gt = np.load(os.path.join(gt_dir, f'sample_{sample_num}_depth.py'))
+        output_triples.append((pred, gt, sample_num))
 
     run_evaluation(output_triples)
 
