@@ -53,7 +53,7 @@ METRIC_FNS = {
 }
 
 
-def run_evaluation(output_triples, title=''):
+def run_evaluation(output_triples, title='', print_summary=True):
     records = []
     for pred, gt, sample_num in output_triples:
         rec = {"sample": sample_num}
@@ -66,8 +66,10 @@ def run_evaluation(output_triples, title=''):
         raise RuntimeError("No valid prediction/GT pairs found!")
 
     summary = df.mean(numeric_only=True).to_frame("mean").T
-    print(f"\n=== Mean Depth-Estimation Metrics {'('+title+')' if title else ''} ===")
-    print(summary.to_string(float_format=lambda x: f"{x:.4f}"))
+    if print_summary:
+        print(f"\n=== Mean Depth-Estimation Metrics {'('+title+')' if title else ''} ===")
+        print(summary.to_string(float_format=lambda x: f"{x:.4f}"))
+    return summary
 
 
 def load_depth(path: Path) -> np.ndarray:

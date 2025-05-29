@@ -185,7 +185,7 @@ def experiment_2(data_dir):
 
     initial_output_triples = []
     output_triples = []
-
+    
     for filenames in tqdm(tail_samples):
         sample_num = filenames.strip()[7:13]
         img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
@@ -206,9 +206,9 @@ def experiment_2(data_dir):
             _, guide = guidance_net(img, sampled_depth, pred_mean)
 
             preds, _, _ = udr_model(pred_mean, pred_total_var, guide)
-        #initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
+        initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
         output_triples.append((preds[-1].cpu().numpy(), gt, sample_num))
-    #run_evaluation(initial_output_triples, "EnsembleDA2")
+    run_evaluation(initial_output_triples, "EnsembleDA2")
     run_evaluation(output_triples, "UDR")
 
 # Read Kalman Gain
