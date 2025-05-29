@@ -12,7 +12,7 @@ from torchvision.transforms import ToTensor
 from Depth_Anything_V2.metric_depth.depth_anything_v2.dpt import DepthAnythingV2
 from MSPN_SDR.lib.model.MSPN import MSPN
 from evaluate import run_evaluation
-from run_refinement import compute_aurg, compute_ause, sample_depth_from_var
+from utils import compute_aurg, compute_ause, sample_depth_from_var
 
 
 EMBED_DIM = 64
@@ -185,7 +185,7 @@ def experiment_2(data_dir):
 
     initial_output_triples = []
     output_triples = []
-    
+
     for filenames in tqdm(tail_samples):
         sample_num = filenames.strip()[7:13]
         img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
@@ -279,11 +279,8 @@ def experiment_4(data_dir):
     depth_models = init_depth_models(device)
     var_model = init_var_model(device)
 
-    # Use last 10% of training set as validation set
     with open(os.path.join(data_dir, 'test_list.txt'), 'r') as f:
-        test_samples = [s.strip() for s in f]#sorted(list(f))]
-    #mid = int(len(all_samples)*0.9)
-    #tail_samples = all_samples[mid:]
+        test_samples = [s.strip() for s in f]
 
     test_data_dir = os.path.join(data_dir, 'test', 'test')
     predictions_dir = os.path.join(data_dir, 'output', 'predictions')
