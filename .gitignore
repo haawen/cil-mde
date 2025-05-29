@@ -4,6 +4,8 @@ preds/
 dataset/
 test_images/
 test_models/
+pretrained/
+checkpoints/
 **/__pycache__/
 .vscode/
 # Auto Generated gitignore starts here

@@ -43,7 +43,7 @@ def load_sample(rgb_path, var_path, depth_md_path=None):
 
     return rgb, var, depth_md
 
-def sample_depth_from_var(total_var, depth_md, threshold=0.01):
+def sample_depth_from_var(total_var, depth_md, threshold=0.05):
     depth = torch.zeros_like(depth_md)
     cutoff = total_var.min() + (total_var.max() - total_var.min()) * threshold
     depth[total_var < cutoff] = depth_md[total_var < cutoff]
@@ -75,11 +75,11 @@ def get_num_sample_tensor(depth):
     return torch.Tensor([len(depth.nonzero())])
 
 
-def get_mask_from_var(total_var, threshold=0.01):
+def get_mask_from_var(total_var, threshold=0.05):
     return (total_var < threshold) * 1.0
 
 
-def load_inputs(rgb_path, var_path, depth_md_path, threshold=0.01):
+def load_inputs(rgb_path, var_path, depth_md_path, threshold=0.05):
     rgb, variance, depth_md = load_sample(rgb_path, var_path, depth_md_path)
     #depth, mask_init = depth_and_mask_from_rand(depth_md)
     depth = sample_depth_from_var(variance, depth_md, threshold=threshold)

@@ -53,7 +53,7 @@ METRIC_FNS = {
 }
 
 
-def run_evaluation(output_triples):
+def run_evaluation(output_triples, title=''):
     records = []
     for pred, gt, sample_num in output_triples:
         rec = {"sample": sample_num}
@@ -66,7 +66,7 @@ def run_evaluation(output_triples):
         raise RuntimeError("No valid prediction/GT pairs found!")
 
     summary = df.mean(numeric_only=True).to_frame("mean").T
-    print("\n=== Mean Depth-Estimation Metrics ===")
+    print(f"\n=== Mean Depth-Estimation Metrics {'('+title+')' if title else ''} ===")
     print(summary.to_string(float_format=lambda x: f"{x:.4f}"))
 
 
