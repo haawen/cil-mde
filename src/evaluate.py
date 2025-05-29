@@ -5,11 +5,7 @@ from pathlib import Path
 import numpy as np
 import cv2
 import pandas as pd
-import torch
 from tqdm import tqdm
-
-from MSPN_SDR.lib.model.MSPN import MSPN
-from run_refinement import load_inputs, load_model, prepare_inputs, EMBED_DIMS, PROP_TIME, RGB_DIR, DEPTH_MD_DIR, TOTAL_VARIANCE_DIR
 
 
 def _mask(gt, pr):
@@ -103,8 +99,10 @@ def main():
 
     for filenames in tqdm(tail_samples):
         sample_num = filenames.strip()[7:13]
-        pred = np.load(os.path.join(predictions_dir, f'sample_{sample_num}_depth.py'))
-        gt = np.load(os.path.join(gt_dir, f'sample_{sample_num}_depth.py'))
+        pred_path = Path(os.path.join(predictions_dir, f'sample_{sample_num}_depth.npy'))
+        gt_path = Path(os.path.join(gt_dir, f'sample_{sample_num}_depth.npy'))
+        pred = load_depth(pred_path)
+        gt = load_depth(gt_path)
         output_triples.append((pred, gt, sample_num))
 
     run_evaluation(output_triples)
