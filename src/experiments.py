@@ -2,6 +2,7 @@ import argparse
 import os
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as transforms
@@ -10,7 +11,8 @@ from PIL import Image
 from torchvision.transforms import ToTensor
 
 from Depth_Anything_V2.metric_depth.depth_anything_v2.dpt import DepthAnythingV2
-from MSPN_SDR.lib.model.MSPN import MSPN
+from MSPN_SDR.lib.model.MSPN_original import MSPN
+from MSPN_SDR.lib.model.MSPN import MSPN as UDR
 from evaluate import run_evaluation
 from utils import compute_aurg, compute_ause, sample_depth_from_var
 
@@ -31,8 +33,14 @@ transform_pipeline = transforms.Compose([
 # Original image size (height, width)
 original_size_hw = (426, 560)
 
-def init_udr(device):
+def init_sdr(device):
     model = MSPN(EMBED_DIM, PROP_TIME)
+    model.to(device)
+    model.load_state_dict(torch.load('./checkpoints/SDR_NYU.pt')['net'], strict=False)
+    return model
+
+def init_udr(device):
+    model = UDR(EMBED_DIM, PROP_TIME)
     model = model.to(device)
     model.load_state_dict(torch.load('./checkpoints/udr.pth'))
     return model
@@ -122,15 +130,104 @@ def depth_var_inference(depth_models, var_model, image, device, split_var=False,
     return tuple(output_list)
 
 
-# Compute AUSE and AURG of output variance
+# Run evaluation on SDR, EnsembleDA2 & UDR
 def experiment_1(data_dir):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    udr_model = init_udr(device)
+    sdr_model = init_sdr(device)
+    guidance_net = init_guidance_model(device)
+    depth_models = init_depth_models(device)
+    var_model = init_var_model(device)
+
+    # Use last 10% of training set as validation set
+    with open(os.path.join(data_dir, 'train_list.txt'), 'r') as f:
+        all_samples = [s.strip() for s in sorted(list(f), key=lambda x: x.strip()[7:13])]
+    mid = int(len(all_samples)*0.9)
+    tail_samples = all_samples[mid:]
+
+    train_data_dir = os.path.join(data_dir, 'train', 'train')
+
+    initial_output_triples = []
+    output_triples = []
+    sdr_output_triples = []
+
+    initial_summary = None
+    summary = None
+    sdr_summary = None
+    
+    save_cutoff = len(tail_samples) // 10
+    last_mean_collection = 0
+
+    for i, filenames in enumerate(tqdm(tail_samples)):
+        sample_num = filenames.strip()[7:13]
+        img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
+        img = Image.open(img_file).convert('RGB')
+
+        gt = np.load(os.path.join(train_data_dir, f'sample_{sample_num}_depth.npy'))
+        gt = gt[np.newaxis, np.newaxis, ...]
+
+
+        pred_mean, pred_total_var = depth_var_inference(depth_models, var_model, img, device)
+        sampled_depth = sample_depth_from_var(pred_total_var, pred_mean, threshold=0.05)
+
+        with torch.inference_mode():
+            img = ToTensor()(img)
+            img = img.to(device).unsqueeze(0)
+            sampled_depth = sampled_depth.to(device)
+
+            _, guide = guidance_net(img, sampled_depth, pred_mean)
+
+            preds, _, _ = udr_model(pred_mean, pred_total_var, guide)
+
+            mask = 1/(pred_total_var+1)
+            list_feat = [pred_mean, ]
+            list_mask = [mask, ]
+            sdr_pred, _, _ = sdr_model(pred_mean, list_feat, list_mask, guide, sampled_depth, mask)
+        initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
+        output_triples.append((preds[-1].cpu().numpy(), gt, sample_num))
+        sdr_output_triples.append((sdr_pred.cpu().numpy(), gt, sample_num))
+
+        if i % save_cutoff == save_cutoff-1:
+            tmp_init_eval = run_evaluation(initial_output_triples, print_summary=False) * (save_cutoff) / len(tail_samples)
+            tmp_eval =  run_evaluation(output_triples, print_summary=False) * (save_cutoff) / len(tail_samples)
+            tmp_sdr_eval =  run_evaluation(sdr_output_triples, print_summary=False) * (save_cutoff) / len(tail_samples)
+            
+            initial_summary = tmp_init_eval if initial_summary is None else tmp_init_eval.add(initial_summary)
+            summary = tmp_eval if summary is None else tmp_eval.add(summary)
+            sdr_summary = tmp_sdr_eval if sdr_summary is None else tmp_sdr_eval.add(sdr_summary)
+            
+            last_mean_collection = i
+
+            initial_output_triples.clear()
+            output_triples.clear()
+            sdr_output_triples.clear()
+
+    last_fraction = (len(tail_samples) - 1 - last_mean_collection) / len(tail_samples)
+    if last_fraction > 0:
+        tmp_init_eval = run_evaluation(initial_output_triples, print_summary=False) * last_fraction
+        tmp_eval = run_evaluation(output_triples, print_summary=False) * last_fraction
+        tmp_sdr_eval = run_evaluation(sdr_output_triples, print_summary=False) * last_fraction
+        initial_summary = tmp_init_eval.add(initial_summary)
+        summary = tmp_eval.add(summary)
+        sdr_summary = tmp_sdr_eval.add(sdr_summary)
+
+    print("\n=== Mean Depth-Estimation Metrics (SDR) ===")
+    print(sdr_summary.to_string(float_format=lambda x: f"{x:.4f}"))
+    print("\n=== Mean Depth-Estimation Metrics (EnsembleDA2) ===")
+    print(initial_summary.to_string(float_format=lambda x: f"{x:.4f}"))
+    print("\n=== Mean Depth-Estimation Metrics (UDR) ===")
+    print(summary.to_string(float_format=lambda x: f"{x:.4f}"))
+
+
+# Compute AUSE and AURG of output variance
+def experiment_2(data_dir):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     depth_models = init_depth_models(device)
     var_model = init_var_model(device)
 
     # Use last 10% of training set as validation set
     with open(os.path.join(data_dir, 'train_list.txt'), 'r') as f:
-        all_samples = [s.strip() for s in sorted(list(f))]
+        all_samples = [s.strip() for s in sorted(list(f), key=lambda x: x.strip()[7:13])]
     mid = int(len(all_samples)*0.9)
     tail_samples = all_samples[mid:]
 
@@ -165,52 +262,6 @@ def experiment_1(data_dir):
             print(f"Mean AURG {error_type.capitalize()} ({var_type}): {np.mean(AURG[var_type][error_type]):.4f}")
 
 
-
-
-# Run evaluation on chosen model
-def experiment_2(data_dir):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    udr_model = init_udr(device)
-    guidance_net = init_guidance_model(device)
-    depth_models = init_depth_models(device)
-    var_model = init_var_model(device)
-
-    # Use last 10% of training set as validation set
-    with open(os.path.join(data_dir, 'train_list.txt'), 'r') as f:
-        all_samples = [s.strip() for s in sorted(list(f))]
-    mid = int(len(all_samples)*0.9)
-    tail_samples = all_samples[mid:]
-
-    train_data_dir = os.path.join(data_dir, 'train', 'train')
-
-    initial_output_triples = []
-    output_triples = []
-
-    for filenames in tqdm(tail_samples):
-        sample_num = filenames.strip()[7:13]
-        img_file = os.path.join(train_data_dir, f'sample_{sample_num}_rgb.png')
-        img = Image.open(img_file).convert('RGB')
-
-        gt = np.load(os.path.join(train_data_dir, f'sample_{sample_num}_depth.npy'))
-        gt = gt[np.newaxis, np.newaxis, ...]
-
-
-        pred_mean, pred_total_var = depth_var_inference(depth_models, var_model, img, device)
-        sampled_depth = sample_depth_from_var(pred_total_var, pred_mean, threshold=0.05)
-
-        with torch.inference_mode():
-            img = ToTensor()(img)
-            img = img.to(device).unsqueeze(0)
-            sampled_depth = sampled_depth.to(device)
-
-            _, guide = guidance_net(img, sampled_depth, pred_mean)
-
-            preds, _, _ = udr_model(pred_mean, pred_total_var, guide)
-        initial_output_triples.append((preds[0].cpu().numpy(), gt, sample_num))
-        output_triples.append((preds[-1].cpu().numpy(), gt, sample_num))
-    run_evaluation(initial_output_triples, "EnsembleDA2")
-    run_evaluation(output_triples, "UDR")
-
 # Read Kalman Gain
 def experiment_3(data_dir):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -221,7 +272,7 @@ def experiment_3(data_dir):
 
     # Use last 10% of training set as validation set
     with open(os.path.join(data_dir, 'train_list.txt'), 'r') as f:
-        all_samples = [s.strip() for s in sorted(list(f))]
+        all_samples = [s.strip() for s in sorted(list(f), key=lambda x: x.strip()[7:13])]
     mid = int(len(all_samples)*0.9)
     tail_samples = all_samples[mid:]
 
