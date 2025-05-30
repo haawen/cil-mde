@@ -71,7 +71,6 @@ def get_mask_from_var(total_var, threshold=0.05):
 
 def load_inputs(rgb_path, var_path, depth_md_path, threshold=0.05):
     rgb, variance, depth_md = load_sample(rgb_path, var_path, depth_md_path)
-    #depth, mask_init = depth_and_mask_from_rand(depth_md)
     depth = sample_depth_from_var(variance, depth_md, threshold=threshold)
 
     return rgb, depth, depth_md, variance
@@ -82,8 +81,7 @@ def prepare_inputs(rgb, s_depth, depth_md, variance, guidance_net, device):
     variance = variance.to(device)
 
     with torch.no_grad():
-        #with torch.cuda.amp.autocast():
-            _, guide = guidance_net(rgb, s_depth, depth_md)
+        _, guide = guidance_net(rgb, s_depth, depth_md)
 
     return depth_md, guide, s_depth, variance
 
@@ -114,12 +112,10 @@ def visualize_output(y_inter, var_inter, sample_num):
     for i, yy in enumerate(var_inter):
         fig.add_subplot(5, len(var_inter)//2 + 1, i+1)
         plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy(), vmin=var_min, vmax=var_max, cmap='plasma')
-        #plt.show()
     print("Depths:")
     for i, yy in enumerate(y_inter):
         fig.add_subplot(5, len(y_inter)//2 + 1, i + len(y_inter) + 2)
         plt.imshow(yy.squeeze(0).squeeze(0).cpu().numpy(), vmin=depth_min, vmax=depth_max, cmap='plasma')
-        #plt.show()
     fig.add_subplot(5, len(var_inter)//2 + 1, 4 * (len(var_inter)//2 + 1) + 1)
     print("Ground Truth:")
     plt.imshow(gt.squeeze(0).squeeze(0).cpu().numpy(), vmin=depth_min, vmax=depth_max, cmap='plasma')
@@ -227,7 +223,6 @@ def main():
     load_model(model)
 
     SAMPLE_NUM = random.choice(os.listdir(TOTAL_VARIANCE_DIR))[7:13]
-    #SAMPLE_NUM = '009067'
 
     # RGB image
     rgb_file = os.path.join(RGB_DIR, f'sample_{SAMPLE_NUM}_rgb.png')

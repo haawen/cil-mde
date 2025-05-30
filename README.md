@@ -17,13 +17,16 @@ Choosing `Venv` is most viable option since PyTorch doesn't support conda instal
 ## Installing depencencies
 > **_WARNING:_** Please make sure to use a Linux or Mac environment since Natten has no pre-built binaries for Windows. If you still want to use Windows, be ready to debug the local compilation process.
 
-First download PyTorch 2.0.1 with CUDA 11.8:
+Having activated the environment, download PyTorch 2.0.1 with CUDA 11.8:
 
 ```bash
 pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
 ```
-
-Then go ahead and run the following command:
+Natten must also be installed by itself:
+```bash
+pip install natten==0.14.6+torch200cu118 -f https://shi-labs.com/natten/wheels/
+```
+Then go ahead and install the remaining dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -37,7 +40,7 @@ cd src
 python evalute.py --predictions_dir <path_to_outputs> --gt_dir <path_to_ground_truth> --train_list <path_to_train_list.txt>
 ```
 
-For experiments using UDR, download the pretrained weights from [here](https://drive.google.com/file/d/1LV_-7g9tV5sRa5z8UnYCKKblXxQlX_rd/view?usp=sharing) and unzip the folder to `cil-mde/src/checkpoints`.
+For experiments using the ensemble and UDR, download the pretrained weights from [here](https://drive.google.com/file/d/1Yh4emxgo-npXah8sAQAAJbxkYfT5-mf4/view?usp=sharing) and unzip the folder to `cil-mde/src/checkpoints`.
 
 > **_NOTE:_** While we did show the original SDR metrics in our report, to re-run that evaluation you have to replace the MSPN implementation
 
@@ -69,11 +72,11 @@ cil-mde
 ```
 
 ### Experiment 1: Evaluation of Mean Ensemble and UDR
-The mean ensemble has the means to output a variance map that can be fed into UDR. The experiment calculates metrics for both and shows the difference that UDR can make (spoiler alert: it's not that much with a model trained on ~512 images out of a potential 20k). As an added bonus, the original SDR architecture is also evaluated as an added comparison
+The mean ensemble has the means to output a variance map that can be fed into UDR. The experiment calculates metrics for both and shows the difference that UDR can make (spoiler alert: it's not that much with a model trained on ~512 images out of a potential 20k). As an added bonus, the original SDR architecture is also evaluated.
 ```bash
 python experiments.py --data_dir <path_to_data> --experiment_number 1
 ```
-> **_WARNING:_** You need a lot of free RAM to run this on a PC with 16GB (8GB won't do). Close all other applications during this experiment and if you are using WSL, increase the memory size in the WSL settings to 12000 MB temporarily.
+> **_WARNING:_** This experiment was done with a PC with 16GB, anything lower was not tested so proceed at your own discretion.
 
 ### Experiment 2: AUSE & AURG of output Variance
 This experiment calculates the "Area Under the Sparsification Error" and "Area Under the Random Gain" metrics for each iteration of UDR and prints out the mean values.
