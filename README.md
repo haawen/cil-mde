@@ -1,5 +1,5 @@
 # UDR: Uncertainty-Aware Depth Refinement
-UDR is a framework that can be used on top of an existing MDE model. It works by computing the variance of each pixel in a prediction with the help of a deep ensemble and refining it with each iteration
+UDR is a framework that can be used on top of an existing MDE model. It works by computing the variance of each pixel in a prediction with the help of a deep ensemble and refining it with each iteration.
 For a more in-depth view, please see the attached report `CIL_Report_CVPR_.pdf`
 
 
