@@ -1,22 +1,12 @@
 # UDR: Uncertainty-Aware Depth Refinement
-UDR is a framework that can be used on top of an existing MDE model. It works by computing the variance of each pixel in a prediction with the help of a deep ensemble and refining it with each iteration.
+UDR is a framework that can be used on top of an existing MDE model. It works by computing the variance of each pixel in a prediction with the help of a deep ensemble and refining it with each iteration
+For a more in-depth view, please see the attached report `CIL_Report_CVPR_.pdf`
 
-## Setting up a Development Environment
-When using VSCode, creating a new dev environment is as easy as pressing `Ctrl+P`, searching for
-```
->Python: Select Interpreter
-```
-and choosing the option
-```
-Create Virtual Environment...
-```
-Choosing `Venv` is most viable option since PyTorch doesn't support conda installs anymore. Create a new virtual environment using Python version `3.10.12`.
-
-> **_HINT:_** If you don't want to use VSCode, go ahead and create a venv the normal way using Python 3.10.12
 
 ## Installing depencencies
 > **_WARNING:_** Please make sure to use a Linux or Mac environment since Natten has no pre-built binaries for Windows. If you still want to use Windows, be ready to debug the local compilation process.
 
+Start by creating a new virtual environment using Python version `3.10.12`.
 Having activated the environment, download PyTorch 2.0.1 with CUDA 11.8:
 
 ```bash
