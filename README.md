@@ -1,90 +1,69 @@
-# UDR: Uncertainty-Aware Depth Refinement
-UDR is a framework that can be used on top of an existing MDE model. It works by computing the variance of each pixel in a prediction with the help of a deep ensemble and refining it with each iteration.
-For a more in-depth view, please see the attached report `CIL_Report_CVPR_.pdf`
+# Post-hoc Uncertainty-Aware Refinement for Monocular Depth Estimation
 
+Monocular depth foundation models are strong in general, but they still go wrong in predictable places: occlusions, thin structures, and textureless regions. This project estimates *where* a pretrained depth model is likely to be wrong, then uses that uncertainty to refine the prediction, without retraining the base model from scratch.
 
-## Installing depencencies
-> **_WARNING:_** Please make sure to use a Linux or Mac environment since Natten has no pre-built binaries for Windows. If you still want to use Windows, be ready to debug the local compilation process.
+Course project for the Computational Intelligence Lab (CIL), Department of Computer Science, ETH Zürich.
 
-Start by creating a new virtual environment using Python version `3.10.12`.
-Having activated the environment, download PyTorch 2.0.1 with CUDA 11.8:
+<p align="center">
+  <img src="figs/fig1_uncertainty_vs_error.png" width="620"><br>
+  <em>Estimated uncertainty lines up with where the prediction error actually is. Left to right: ground-truth depth, prediction error, and the epistemic and aleatoric uncertainty maps.</em>
+</p>
 
-```bash
-pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
-```
-Natten must also be installed by itself:
-```bash
-pip install natten==0.14.6+torch200cu118 -f https://shi-labs.com/natten/wheels/
-```
-Then go ahead and install the remaining dependencies:
-```bash
-pip install -r requirements.txt
-```
+## Idea
 
-## Running Experiments
-The majority of experiments can be run in this repository, if you want to re-run the evaluation for [MiDaS](https://www.kaggle.com/code/kailik34/inference-midas/output), [Marigold](https://www.kaggle.com/code/kailik34/inference-marigold) and [DepthAnythingV2](https://www.kaggle.com/code/kailik34/inference-depthanythingv2), run and download the outputs of the kaggle notebooks to a directory of choice and run the following command from `src`:
-```bash
-cd src
-```
-```bash
-python evalute.py --predictions_dir <path_to_outputs> --gt_dir <path_to_ground_truth> --train_list <path_to_train_list.txt>
-```
+The method has two parts:
 
-For experiments using the ensemble and UDR, download the pretrained weights from [here](https://drive.google.com/file/d/1Yh4emxgo-npXah8sAQAAJbxkYfT5-mf4/view?usp=sharing) and unzip the folder to `cil-mde/src/checkpoints`.
+**1. Post-hoc uncertainty.** We take a pretrained depth model (DepthAnythingV2) and finetune a small deep ensemble of it to output a per-pixel Gaussian instead of a single depth value. Averaging over the ensemble gives a mean depth plus a variance, and that variance splits cleanly into two parts:
+- *epistemic* uncertainty (model disagreement, reducible with more data), and
+- *aleatoric* uncertainty (inherent noise in the scene).
 
-> **_NOTE:_** While we did show the original SDR metrics in our report, to re-run that evaluation you have to replace the MSPN implementation
+Because this happens after the base model is trained, it adds calibrated uncertainty without hurting the original prediction.
 
-For the remaining experiments we need the following folder structure for the training and test data:
+**2. Uncertainty-guided refinement.** We borrow the idea of depth completion, where sparse trusted measurements are propagated to fix noisy predictions. Here the "trusted measurements" are simply the low-uncertainty pixels. A masked spatial-propagation network (MSPN) then spreads those confident values into the uncertain regions, and the update is combined with the previous estimate through a Kalman-filter step, where the uncertainty sets how large each correction should be.
 
-```
-cil-mde
-├── data
-│   ├── output
-│   │   ├── predictions
-│   │   └── results
-│   ├── test/test
-│   ├── train/train
-│   ├── test_list.txt
-│   └── train_list.txt
-├── src
-│   ├── checkpoints/
-│   ├── Depth_Anything_V2/
-│   ├── inference_notebooks/
-│   ├── MSPN_SDR/
-│   ├── create_prediction_csv.py
-│   ├── evaluate.py
-│   ├── experiments.py
-│   ├── udr_training.ipynb
-│   └── utils.py
-├── .gitignore
-├── README.md
-└── requirements.txt
-```
+## Results
 
-### Experiment 1: Evaluation of Mean Ensemble and UDR
-The mean ensemble has the means to output a variance map that can be fed into UDR. The experiment calculates metrics for both and shows the difference that UDR can make (spoiler alert: it's not that much with a model trained on ~512 images out of a potential 20k). As an added bonus, the original SDR architecture is also evaluated.
-```bash
-python experiments.py --data_dir <path_to_data> --experiment_number 1
-```
-> **_WARNING:_** This experiment was done with a PC with 16GB, anything lower was not tested so proceed at your own discretion.
+**Uncertainty calibration.** We compare against the common image-flipping baseline using Area Under Sparsification Error (AUSE, lower is better) and Area Under Random Gain (AURG, higher is better). The ensemble localizes error far better, roughly 3× lower AUSE-L2:
 
-### Experiment 2: AUSE & AURG of output Variance
-This experiment calculates the "Area Under the Sparsification Error" and "Area Under the Random Gain" metrics for each iteration of UDR and prints out the mean values.
-```bash
-python experiments.py --data_dir <path_to_data> --experiment_number 2
-```
+| Method   | AUSE-L1 ↓ | AUSE-L2 ↓ | AURG-L1 ↑ | AURG-L2 ↑ |
+|----------|-----------|-----------|-----------|-----------|
+| Flipping | 0.0545    | 0.0265    | 0.0316    | 0.0302    |
+| **Ours** | **0.0297**| **0.0082**| **0.0563**| **0.0486**|
 
-### Experiment 3: Analysis of the Kalman Gain
-The Kalman gain is an integral part of UDR, which depends on a correct modeling of the uncertainty propagation. This experiment determines if our uncertainty propation actually does its job. It outputs the minimum, mean and maximum values of the Kalman gain computed each iteration and show the first 6 sample images.
-```bash
-python experiments.py --data_dir <path_to_data> --experiment_number 3
-```
+**Depth accuracy.** The refinement runs on top of the finetuned ensemble. It sharpens edges qualitatively (below) and stays on par with the ensemble numerically, while both clearly beat the zero-shot foundation baselines:
 
-### Experiment 4: Test Predictions and Submission
-Our submission was generated with this experiment. It runs the whole UDR pipeline on the whole test set and saves it to `cil-mde/src/data/output/predictions/`. Run the `create_prediction_csv.py` to generate the submission csv.
-```bash
-python experiments.py --data_dir <path_to_data> --experiment_number 4
-python create_prediction_csv.py
-```
+| Method              | si-RMSE ↓ | AbsRel ↓ | RMSE ↓  | logRMSE ↓ | δ1 ↑   |
+|---------------------|-----------|----------|---------|-----------|--------|
+| DepthAnythingV2     | 0.565     | 0.357    | 1.076   | 0.375     | 0.416  |
+| MiDaS               | 0.580     | 0.360    | 1.044   | 0.422     | 0.469  |
+| Marigold            | 0.407     | 0.171    | 0.504   | 0.253     | 0.738  |
+| SDR                 | 0.2718    | 0.0556   | 0.2837  | 0.0865    | 0.9653 |
+| Ensemble (DA2)      | 0.2069    | 0.0487   | 0.2196  | 0.0698    | 0.9814 |
+| **UDR (ours)**      | **0.2068**| **0.0479**| 0.2197 | **0.0696**| **0.9816** |
 
-The submission csv can then be found at `cil-mde/src/data/predictions.csv`
+<p align="center">
+  <img src="figs/fig2_refinement_sharpening.png" width="760"><br>
+  <em>RGB input followed by the depth estimate across refinement iterations. Blurry, high-variance predictions get sharpened as confident values propagate inward.</em>
+</p>
+
+## Analysis
+
+We track the Kalman gain over iterations. It starts high (trusting new measurements) and drops as predictions become confident, with the remaining correction concentrated in genuinely uncertain areas such as object edges.
+
+<p align="center">
+  <img src="figs/fig4_kalman_gain_heatmaps.png" width="520"><br>
+  <em>Evolution of the (clipped inverse-log) Kalman gain. Bright means confident; the darker, low-gain regions sit at occlusions and edges.</em>
+</p>
+
+## Limitations
+
+- The MSPN has a large computation graph, which made full-dataset training with enough iterations expensive and limited how far the refinement could be pushed.
+- The refinement's gain over the already-strong ensemble is small, and we observed signs of possible data leakage in the custom dataset, so the headline depth numbers should be read with that caveat. The uncertainty-calibration result is the cleaner takeaway.
+
+## Report
+
+Full write-up, derivations, and ablations: [report.pdf](report.pdf).
+
+## Authors
+
+Zhiang Chen, Julian Elyes, Longxiang Jiao, Kai Wen Li — Department of Computer Science, ETH Zürich.
